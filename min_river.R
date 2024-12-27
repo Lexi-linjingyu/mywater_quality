@@ -9,8 +9,9 @@ path <- "F:/wangjinz/lexi/TxtInOut"
 setwd("H:/TxtInOut")
 path <- "H:/TxtInOut"
 
-Packages <- c("SWATplusR","purrr","sf","tidyr","fast","dplyr","ggplot2", "sensitivity",
-              "lhs","hydromad","lubridate","hydroGOF","forcats","EcoHydRology","magrittr")
+Packages <- c("SWATplusR","purrr","sf","tidyr","fast","dplyr","ggplot2", 
+              "sensitivity","lhs","hydromad","lubridate","hydroGOF",
+              "forcats","EcoHydRology","magrittr","cowplot")
 lapply(Packages, library, character.only = TRUE)
 
 
@@ -36,35 +37,46 @@ ggplot() +
 
 # Read observed data and change format
 q_obs_min_o <- read.csv("F:/wangjinz/lexi/stfM/minQ29.csv")
-minQ65 <- read.csv("F:/wangjinz/lexi/stfM/minQ65.csv")
+q_obs_23 <- read.csv("F:/wangjinz/lexi/stfM/minQ22.csv",
+                     stringsAsFactors = FALSE)
+q_obs_23$date <- as.Date(q_obs_23$date,format = "%Y/%m/%d")
 q_obs_min_o$date <- as.Date(as.character(q_obs_min_o$date),format ="%Y-%m-%d")
-min_river_sc1 = read.csv("F:/wangjinz/lexi/stfM/minQa65.csv",col.names = c("date","nh4"))
+
+min_river_sc1 = read.csv("F:/wangjinz/lexi/stfM/min_QA72.csv",
+                         col.names = c("date","nh4"))
 min_river_sc1$date <- as.Date(min_river_sc1$date)
-obs_min_week = min_river_sc1 %>% 
+obs_min_week1 = min_river_sc1 %>% 
   mutate(week = as.integer(strftime(date,format = "%Y%V")))
-obs_min_week_s <- obs_min_week %>% 
+obs_min_week_72 <- obs_min_week1 %>% 
   filter(date <= "2016-12-31")
   
-
+min_river_sc2 = read.csv("F:/wangjinz/lexi/stfM/min_QA91.csv",
+                         col.names = c("date","nh4"))
+min_river_sc2$date <- as.Date(min_river_sc2$date)
+obs_min_week2 = min_river_sc2 %>% 
+  mutate(week = as.integer(strftime(date,format = "%Y%V")))
+obs_min_week_90 <- obs_min_week2 %>% 
+  filter(date <= "2016-12-31")
 
 #### Step 1 model simulation ####
 sim_min_1960 <- run_swat2012(project_path = path,
-                             start_date = "1962-01-01",
-                             end_date = "2018-12-31",
+                             start_date = "1960-01-01",
+                             end_date = "2016-12-31",
                              output = list(nh4_out = define_output(file = "rch",
                                                                    variable = "NH4_OUT",
                                                                    unit = 1:91),
                                            q_out = define_output(file = "rch",
                                                                  variable = "FLOW_OUT",
                                                                  unit = 1:91)),
-                             run_path = run_path_model)
+                             run_path = run_path_model
+                             )
 
 
 ###===
 df = sim_min_1960 %>% 
   select(date,q_out_72,nh4_out_72) %>% 
   mutate(q = (nh4_out_72/q_out_72)/86.4) %>%
-  filter(date >= "2005-01-01")
+  filter(date >= "1960-01-01")
 
 df = df %>%
   mutate(week = as.integer(strftime(date, format = "%Y%V")))
@@ -73,50 +85,44 @@ df_week = aggregate(q~week, data = df, mean)
 nh_plot <- df_week %>%
   select(week, q) %>%
   dplyr::rename(nh_sim = q) %>%
-  right_join(., obs_min_week_s, by = "week") %>%
+  right_join(., obs_min_week_72, by = "week") %>%
   dplyr::rename(nh_obs = nh4) %>%
   gather(., key = "variable", value = "nh4",-week,-date)
 
-ggplot(data = nh_plot) +
-  geom_line(aes(x = date, y = nh4, col = variable, lty = variable)) +
+p1 <- ggplot(data = nh_plot) +
+  geom_line(aes(x = date, y = nh4,col = variable,lty = variable)) +
   scale_color_manual(values = c("black", "tomato3")) +
   labs(y = expression("concentration ("~mg/l~")"))+
-  ylim(0,5)+
-  theme_bw()
+  ylim(0,2)+
+  theme_bw()+
+  theme(legend.position = "none",axis.text.y =element_blank()) 
 
-######
-qa <- sim_min_1960[,73]
-qu <- sim_min_1960[,164]
-date <- sim_min_1960[,1]
-qa_sim <- (qa/qu)/86.4
-qa_sim <- data.frame(date,qa_sim)
-qa_sim = qa_sim %>% 
-  filter(date >= "2008-01-01")
+df_flow = sim_min_1960 %>% 
+  select(date,q_out_72)
+df_flow = df_flow %>%
+  mutate(week = as.integer(strftime(date, format = "%Y%V"))) %>% 
+  filter(week >= "200744" & week <= "201620")
+df_flow_week = aggregate(q_out_72~week, data = df_flow, mean)
 
-qa_sim = qa_sim %>%
-  mutate(week = as.integer(strftime(date, format = "%Y%V")))
-qa_sim = data.frame(qa_sim)
-qa_sim_week = aggregate(qa_sim[,2],list(qa_sim$week), mean)
-colnames(qa_sim_week)[1:2] = c("week","q")
+q_plot <- df_flow_week %>%
+  select(week, q_out_72) %>%
+  dplyr::rename(q_sim = q_out_72) %>%
+  right_join(., obs_min_week_72, by = "week") %>%
+  select(-nh4)
+p2 <- ggplot(data = q_plot)+
+  geom_line(aes(x = date,y = q_sim))+
+  ylim(0,4000)+
+  theme_bw()+
+  theme(axis.text.y =element_blank())
 
-nh_plot <- qa_sim_week %>%
-  select(week, q) %>%
-  dplyr::rename(nh_sim = q) %>%
-  right_join(., obs_min_week_s, by = "week") %>%
-  dplyr::rename(nh_obs = nh4) %>%
-  gather(., key = "variable", value = "nh4",-week,-date)
+plot_grid(p2,p1,lables = c("flow","nh4"),ncol = 1,align = "h")
 
-ggplot(data = nh_plot) +
-  geom_line(aes(x = date, y = nh4, col = variable, lty = variable)) +
-  scale_color_manual(values = c("black", "tomato3")) +
-  labs(y = expression("concentration ("~mg/l~")"))+
-  ylim(0,5)+
-  theme_bw()
 
+####
 
 ##
 
-plot(sim_min_1960$q_out_30,ylim = c(0,1000))
+plot(sim_min_1960$q_out_23,ylim = c(0,1000))
 ggplot() +
   geom_sf(data = sub) +
   geom_sf(data = riv, col = "royalblue", lwd = 0.75) +
@@ -124,14 +130,16 @@ ggplot() +
   theme_bw()
 
 ###water quantity performance first running
-q_obs_min <- filter(q_obs_min_o, date >= ymd("1985-01-01"),
-                    date <= "2008-12-31")
-q_sim_min <- filter(sim_min_1960, date >= ymd("1985-01-01"),
-                         date <= "2008-12-31")
+
+##Q30
+q_obs_min <- filter(q_obs_min_o, date >= ymd("1960-01-01"),
+                    date <= ymd("2008-12-31"))
+q_sim_min <- filter(sim_min_1960, date >= ymd("1960-01-01"),
+                         date <= ymd("2008-12-31"))
 
 q_plot <- q_sim_min %>%
-  select(date, q_out_27) %>%
-  dplyr::rename(q_sim = q_out_27) %>%
+  select(date, q_out_30) %>%
+  dplyr::rename(q_sim = q_out_30) %>%
   left_join(., q_obs_min, by = "date") %>%
   dplyr::rename(q_obs = discharge) %>%
   gather(., key = "variable", value = "discharge",-date)
@@ -147,9 +155,22 @@ nse_test <- q_sim_min%>%
   map_dbl(., ~NSE(.x, q_obs_min$discharge))
 head(sort(nse_test, decreasing = TRUE))
 
-plot(q_obs_maidilong$discharge,q_sim_2012$FLOW_OUT_10)
-r_sim <- lm(q_obs_maidilong$discharge ~ q_sim_2012$FLOW_OUT_10)
-summary(r_sim)
+##Q23
+q_sim_min <- filter(sim_min_1960, date >= ymd("1986-01-01"),
+                    date <= ymd("1990-12-31"))
+
+q_plot <- q_sim_min %>%
+  select(date, q_out_22) %>%
+  dplyr::rename(q_sim = q_out_22) %>%
+  left_join(., q_obs_23, by = "date") %>%
+  dplyr::rename(q_obs = discharge) %>%
+  gather(., key = "variable", value = "discharge",-date)
+
+ggplot(data = q_plot) +
+  geom_line(aes(x = date, y = discharge, col = variable, lty = variable)) +
+  scale_color_manual(values = c("black", "tomato3")) +
+  labs(y = expression("streamflow ("~m^3/s~")"))+
+  theme_bw()
 
 #### Step 2 Sensitivity analysis ####
 par_names_all <- c("ESCO.hru| change = absval",
@@ -313,7 +334,7 @@ ggplot(data = dotty) +
 par_test_yie <- tibble("ESCO.hru| change = absval" = c(0,1),
                        "ALPHA_BNK.rte | change = absval"= c(0,0.3),
                        "CH_N2.rte | change = absval" = c(0,0.4),
-                       "CH_K2.rte | change = absval" = c(50,200),
+                       "CH_K2.rte | change = absval" = c(0,200),
                        "SOL_NO3.chm | change = absval" = c(0,300),
                        "SOL_BD.sol | change = absval" = c(1.1,1.9),
                        "SOL_AWC.sol | change = absval" = c(0,0.5),
@@ -324,7 +345,7 @@ par_test_yie <- tibble("ESCO.hru| change = absval" = c(0,1),
                        "CN2.mgt | change = absval" = c(0,100))
                        
 
-n_sample = 10
+n_sample = 500
 n_par = ncol(par_test_yie)
 par_yie <- randomLHS(n = n_sample, k = n_par) %>%
   as_tibble(., .name_repair = "minimal") %>%
@@ -334,57 +355,58 @@ test_d <- run_swat2012(project_path = path,
                            output = list(
                              q_out= define_output(file = "rch",
                                                   variable = "FLOW_OUT",
-                                                  unit = 1:91)),
+                                                  unit = 1:91),
+                             nh_out = define_output(file = "rch",
+                                                    variable = "NH4_OUT",
+                                                    unit = 1:91)),
                            output_interval = "d",
                            parameter = par_yie,
-                           start_date = "1962-01-01",
-                           end_date = "2008-12-31",
+                           start_date = "1980-01-01",
+                           end_date = "2016-12-31",
                            years_skip = 2,
-                           n_thread = 2,
+                           n_thread = 4,
                            run_path = run_path_model)
-
-q_obs_min_test <- filter(q_obs_min, date >= "1985-01-01",date <= "2008-12-31")
-q_obs_min_test$date = as.Date(q_obs_min_test$date)
-q_sim_min <- filter(test_d$simulation$q_out_33, date >= "1985-01-01",date <= "2008-12-31")
-
+##Q23
+q_obs_min_23 <- filter(q_obs_23, date >= "1986-01-01",date <= "1990-12-31")
+q_obs_min_23$date = as.Date(q_obs_min_23$date)
+q_sim_min <- filter(test_d$simulation$q_out_22, date >= "1986-01-01",date <= "1990-12-31")
 nse_yie_test <- q_sim_min %>%
   select(-date) %>%
-  map_dbl(., ~NSE(.x, q_obs_min_test$discharge))
-head(sort(nse_yie_test, decreasing = TRUE),n=20)
-
-
+  map_dbl(., ~NSE(.x, q_obs_min_23$discharge))
+head(sort(nse_yie_test, decreasing = TRUE),n=10)
 yie_plot <- q_sim_min %>%
-  select(date,run_04) %>%
-  dplyr::rename(q_sim = run_04) %>%
-  left_join(., q_obs_min_test, by = "date") %>%
+  select(date,run_02) %>%
+  dplyr::rename(q_sim = run_02) %>%
+  left_join(., q_obs_min_23, by = "date") %>%
   dplyr::rename(q_obs = discharge) %>%
   gather(., key = "variable", value = "discharge",-date)
-
 ggplot(data = yie_plot) +
   geom_line(aes(x = date, y = discharge, col = variable, lty = variable)) +
   scale_color_manual(values = c("black", "tomato3")) +
-  ylim(0,2000)+
+  ylim(0,1000)+
   theme_bw()
+
 
 
 # q_obs_bf <- BaseflowSeparation(q_obs_min_test$discharge, filter_parameter = 0.925, passes = 3)
 # q_sim_min_bf <- q_sim_min[,-1]
 # df = apply(q_sim_min_bf,2,function(x) {
 #   BaseflowSeparation(x,filter_parameter = 0.925, passes = 3)
-# })
+# }
 # q_sim_bf <- as.data.frame(sapply(df,"[[",1))
 # nse_bf <-  map_dbl(q_sim_bf, ~NSE(.x, q_obs_bf$bt))
 # head(sort(nse_bf, decreasing = TRUE),n=10)
 
-q = test_d$simulation$q_out_65
-qa = test_d$simulation$nh_out_65
+q = test_d$simulation$q_out_72
+qa = test_d$simulation$nh_out_72
 df_plot = q %>% 
   left_join(.,qa,by="date") %>% 
   filter(date >= "2007-01-01") %>%   
   filter(date <= "2016-12-31") %>% 
-  mutate(qa_sim = (run_2.y/run_2.x)/86.4) %>% 
+  mutate(qa_sim = (run_02.y/run_02.x)/86.4) %>% 
   select(date,qa_sim) %>% 
   right_join(.,obs_min_week_s,by="date") %>% 
+  select(-week) %>% 
   dplyr::rename(qa_obs = nh4) %>%
   gather(., key = "variable", value = "nh4",-date)
 ggplot(data = df_plot) +
